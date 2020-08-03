@@ -8,6 +8,7 @@ const monsterMinLife = 10;
 const heroMaxAttack = 20;
 const map = [];
 const potionRecoveryLife = 20;
+const directionMap = {a: left, d: right, w: up, s: down};
 const objectTypes = {
   nothing: 0,
   potion: 1,
@@ -103,25 +104,14 @@ function listenMovingKeys() {
   console.log('? Press the key below to move your hero:');
   showMovementKeys();
   onKeyPress((key) => {
-    switch (key) {
-      case 'a':
-        left();
-        break;
-      case 'd':
-        right();
-        break;
-      case 'w':
-        up();
-        break;
-      case 's':
-        down();
-        break;
-      default:
-        console.log('Invalid movement key');
-        showMovementKeys();
-        return true;
+    if (key in directionMap) {
+      directionMap[key]();
+      return false;
+    } else {
+      console.log('Invalid movement key: ' + key);
+      showMovementKeys();
+      return true;
     }
-    return false;
   });
 }
 
@@ -152,13 +142,14 @@ function generateMap() {
 }
 
 function showMap() {
+  console.log('');
+  heading('Map');
   printTable(
     map.map((columns, row) =>
       columns.map((value, column) =>
         row === position.value.y && column === position.value.x ? 'x' : value,
       ),
     ),
-    'Map',
   );
 }
 
