@@ -184,6 +184,8 @@ const battleEpic = effect(function* () {
     showObjectInfo('Monster', monsterLife.value);
   }
 
+  // forever loop for battle
+  // the loop will be ended when hero is die or monster is killed
   while (true) {
     console.log('');
     listenAnyKey('? Press any key to attack monster');
@@ -193,6 +195,8 @@ const battleEpic = effect(function* () {
     const heroAttackValue = Math.ceil(Math.random() * heroMaxAttack);
     console.log('Hero attacks: ' + heroAttackValue);
     takeDamage(monsterLife, heroAttackValue);
+
+    // monster is killed
     if (!monsterLife.value) {
       heading('You won', true);
       return;
@@ -203,11 +207,13 @@ const battleEpic = effect(function* () {
     console.log('Monster attacks: ' + monsterAttachValue);
     takeDamage(life, monsterAttachValue);
 
+    // hero is die
     if (!life.value) {
       heading('You lose', true);
       return;
     }
 
+    // hero and mosnter are still alive
     showBattleSummary();
   }
 });
@@ -218,10 +224,12 @@ export default effect(function* () {
   showHeroInfo();
   showMap();
   generateMap();
+  // main game story
   while (true) {
-    // listen hero moving
+    // hero movement loop
     while (true) {
       listenMovingKeys();
+      // listen moveSuccess or collideBoundary effects
       const {success} = yield {
         success: moveSuccess,
         fail: collideBoundary,
@@ -229,17 +237,25 @@ export default effect(function* () {
 
       if (success) {
         showMap();
+        // end movement loop
         break;
-      } else {
-        // continue to listen movement keys
-        console.log('Cannot move');
       }
+
+      // continue to listen movement keys
+      console.log('Cannot move');
     }
+
+    // after moving, we generate some random object
     const objectType = generateObject();
+    // found a potion
     if (objectType === objectTypes.potion) {
       drinkPotion();
-    } else if (objectType === objectTypes.monster) {
+    }
+    // found a monster
+    else if (objectType === objectTypes.monster) {
+      // start battle
       yield battleEpic();
+      // hero is die
       if (!life.value) {
         break;
       }
