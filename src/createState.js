@@ -9,13 +9,24 @@ import {
   noop,
   createDebounce,
   createThrottle,
+  objectTypes,
+  isState,
+  mockingScope,
 } from './utils';
 import createLoadable from './createLoadable';
 import StateBase from './StateBase';
 
 export default function createState(
   initial,
-  {displayName, default: defaultValue, args, debounce, throttle} = {},
+  {
+    displayName,
+    default: defaultValue,
+    args,
+    debounce,
+    throttle,
+    onChanging,
+    onChanged,
+  } = {},
 ) {
   let currentValue = unset;
   let currentError;
@@ -24,6 +35,8 @@ export default function createState(
   let loading = false;
   let isDirty = false;
   let isNotifying = false;
+  let isFreezing = false;
+  let dependenciesChanged = false;
   const dependencies = new Set();
   const loadable = createLoadable();
   const onLoadingChange = createObservable();
@@ -37,7 +50,8 @@ export default function createState(
       : setValue;
   // notify loading change can be async, so we make debounced wrapper for it to avoid multiple call at time
   const wrappedNotifyLoadingChange = createDebounce(notifyLoadingChange, 0);
-  const instance = new StateBase({
+  const wrappedInstance = new StateBase({
+    type: objectTypes.state,
     displayName,
     onChange: onChange.subscribe,
     onLoadingChange: onLoadingChange.subscribe,
@@ -45,6 +59,8 @@ export default function createState(
     mutate: setValue,
     reset,
     eval: getValue,
+    freeze,
+    unfreeze,
   });
 
   function getValue() {
@@ -52,6 +68,11 @@ export default function createState(
       return currentValue;
     }
 
+    evaluateInitialValue(initial);
+    return currentValue;
+  }
+
+  function evaluateInitialValue(initial) {
     if (typeof initial === 'function') {
       currentValue = defaultValue;
       evaluationScope({setParent}, () => {
@@ -75,8 +96,6 @@ export default function createState(
       currentValue = initial;
       currentError = undefined;
     }
-
-    return currentValue;
   }
 
   function onReady(listener) {
@@ -114,6 +133,7 @@ export default function createState(
 
     const initializing = currentValue === unset;
     if (currentValue !== value) {
+      onChanging && onChanging();
       if (value instanceof ErrorWrapper) {
         currentError = value.error;
       } else if (value instanceof Error) {
@@ -136,6 +156,24 @@ export default function createState(
       } else {
         loadable.set(loadableStates.hasValue, currentValue);
       }
+
+      onChanged && onChanged();
+    }
+  }
+
+  function freeze() {
+    isFreezing = true;
+  }
+
+  function unfreeze(doReset) {
+    isFreezing = false;
+    if (dependenciesChanged) {
+      if (doReset) {
+        reset();
+      } else {
+        dependenciesChanged = false;
+        handleLoadingState();
+      }
     }
   }
 
@@ -145,26 +183,16 @@ export default function createState(
     }
     const childState = evaluationScope();
     if (childState) {
-      childState.setParent(instance);
+      childState.setParent(wrappedInstance);
     }
   }
 
   function setParent(parent) {
-    if (parent === instance) {
+    if (parent === wrappedInstance) {
       throw new Error('Circular reference');
     }
     if (dependencies.has(parent)) {
       return;
-    }
-    if (process.env.NODE_ENV !== 'production') {
-      if (parent.displayName && displayName) {
-        console.log(
-          '[state-binding] child:',
-          displayName,
-          'parent:',
-          parent.displayName,
-        );
-      }
     }
 
     dependencies.add(parent);
@@ -194,6 +222,10 @@ export default function createState(
   }
 
   function handleDependencyChange() {
+    if (isFreezing) {
+      dependenciesChanged = true;
+      return;
+    }
     if (isDirty || currentValue === unset) {
       return;
     }
@@ -295,14 +327,44 @@ export default function createState(
     return setValue(nextValue, markAsDirty);
   }
 
-  Object.defineProperties(instance, {
+  Object.defineProperties(wrappedInstance, {
     error: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockingContext = mockingScope();
+          if (mockingContext) {
+            const mockInstance = mockingContext.get(wrappedInstance);
+            if (mockInstance && 'error' in mockInstance.props) {
+              if (typeof mockInstance.props.error === 'function') {
+                return mockInstance.props.error();
+              }
+              return mockInstance.props.error;
+            }
+          }
+        }
         return currentError;
+      },
+    },
+    dirty: {
+      get() {
+        return isDirty;
       },
     },
     value: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockingContext = mockingScope();
+          if (mockingContext) {
+            const mockInstance = mockingContext.get(wrappedInstance);
+            if (mockInstance && 'value' in mockInstance.props) {
+              if (typeof mockInstance.props.value === 'function') {
+                return mockInstance.props.value();
+              }
+              return mockInstance.props.value;
+            }
+          }
+        }
+
         const result = getValue();
         registerDependency();
         return result;
@@ -311,6 +373,18 @@ export default function createState(
     },
     loading: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockingContext = mockingScope();
+          if (mockingContext) {
+            const mockInstance = mockingContext.get(wrappedInstance);
+            if (mockInstance && 'loading' in mockInstance.props) {
+              if (typeof mockInstance.props.loading === 'function') {
+                return mockInstance.props.loading();
+              }
+              return mockInstance.props.loading;
+            }
+          }
+        }
         getValue();
         return loading;
       },
@@ -335,13 +409,48 @@ export default function createState(
 
   loadable.onChange(handleLoadingState);
 
-  return instance;
+  if (process.env.NODE_ENV !== 'production') {
+    wrappedInstance.mockApi = {
+      onChange: onChange.dispatch,
+      onLoadingChange: onLoadingChange.dispatch,
+    };
+  }
+  return wrappedInstance;
 }
 
 Object.assign(createState, {
   history: createHistory,
   family: createFamily,
+  map: createMap,
 });
+
+function createMap(states, mapper, options = {}) {
+  let previous;
+  // single state map
+  if (isState(states)) {
+    const state = states;
+    if (!mapper) {
+      throw new Error('mapper required');
+    }
+    previous = options.default;
+    return createState(() => {
+      const value = state.value;
+      return (previous = mapper(value, previous));
+    }, options);
+  } else {
+    if (!states) {
+      throw new Error('state map required');
+    }
+    const entries = Object.entries(states);
+    return createState(() => {
+      const result = {};
+      entries.forEach(([key, state]) => {
+        result[key] = state.value;
+      });
+      return (previous = mapper ? mapper(result, previous) : result);
+    });
+  }
+}
 
 function createFamily(initial, options = {}) {
   const stateMap = createArrayKeyedMap();

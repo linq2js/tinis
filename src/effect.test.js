@@ -241,3 +241,10 @@ test('effect (throttle)', async () => {
   increaseAsync();
   expect(countState.value).toBe(2);
 });
+
+test('yield nothing', () => {
+  const doNothing = effect(function* () {
+    yield;
+  });
+  doNothing();
+});

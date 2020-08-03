@@ -1,3 +1,4 @@
+import {tryGetPropValue} from './mock';
 import {
   unset,
   createLatest,
@@ -10,6 +11,9 @@ import {
   createDebounce,
   createThrottle,
   isCancellable,
+  objectTypes,
+  isStateOrEffect,
+  mockingScope,
 } from './utils';
 import createLoadable from './createLoadable';
 
@@ -18,7 +22,7 @@ export default function createEffect(
   {displayName, debounce = unset, throttle = unset, latest} = {},
 ) {
   const loadable = createLoadable();
-  const wrappedEffect = latest
+  const wrappedInstance = latest
     ? createLatest(instance)
     : debounce !== unset && debounce !== null && debounce !== false
     ? createDebounce(instance, debounce)
@@ -33,7 +37,18 @@ export default function createEffect(
     const context = (currentContext = createContext());
     let isAsync = false;
     let hasError = false;
-    let result = body(...arguments);
+    let mockBody = body;
+    if (process.env.NODE_ENV !== 'production') {
+      const mockingContext = mockingScope();
+      if (mockingContext) {
+        const mockInstance = mockingContext.get(wrappedInstance);
+        if (mockInstance && 'body' in mockInstance.props) {
+          mockBody = mockInstance.props.body;
+        }
+      }
+    }
+    let result = mockBody(...arguments);
+    let isResolvedPromise = false;
 
     if (typeof result === 'function') {
       result = result(context);
@@ -50,17 +65,36 @@ export default function createEffect(
         if (originalCancel) {
           context.onCancel(originalCancel);
         }
-        result.finally(() => {
-          try {
-            onCall.dispatch(payload);
-          } finally {
-            context.dispose();
-          }
-        });
-        result.cancel = () => {
-          context.cancel();
-        };
-        return result;
+        const wrappedPromise = Object.assign(
+          result.then(
+            (asyncResult) => {
+              isResolvedPromise = true;
+              if (loadable.promise !== wrappedPromise) {
+                return asyncResult;
+              }
+              try {
+                onCall.dispatch(payload);
+              } finally {
+                context.dispose();
+              }
+
+              loadable.set(loadableStates.hasValue, asyncResult);
+              return asyncResult;
+            },
+            (e) => {
+              if (loadable.promise !== wrappedPromise) {
+                return e;
+              }
+              loadable.set(loadableStates.hasError, e);
+              return e;
+            },
+          ),
+          {
+            cancel: context.cancel,
+          },
+        );
+        loadable.promise = wrappedPromise;
+        return wrappedPromise;
       }
       return result;
     } catch (e) {
@@ -68,8 +102,14 @@ export default function createEffect(
       loadable.set(loadableStates.hasError, e);
     } finally {
       try {
-        !hasError && loadable.set(loadableStates.hasValue, result);
-        !isAsync && onCall.dispatch(payload);
+        if (!isAsync) {
+          onCall.dispatch(payload);
+          if (!hasError) {
+            loadable.set(loadableStates.hasValue, result);
+          }
+        } else if (!isResolvedPromise) {
+          loadable.set(loadableStates.loading);
+        }
       } finally {
         !isAsync && context.dispose();
       }
@@ -82,9 +122,17 @@ export default function createEffect(
     }
   }
 
-  Object.defineProperties(onLoadingChange, {
+  Object.defineProperties(wrappedInstance, {
     loading: {
       get() {
+        // noinspection DuplicatedCode
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'loading');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
+
         return loadable.get().state === loadableStates.loading;
       },
     },
@@ -112,7 +160,16 @@ export default function createEffect(
 
   loadable.onChange(onLoadingChange.dispatch);
 
-  return Object.assign(wrappedEffect, {
+  if (process.env.NODE_ENV !== 'production') {
+    wrappedInstance.mockApi = {
+      onCall: onCall.dispatch,
+      onLoadingChange: onLoadingChange.dispatch,
+    };
+  }
+
+  return Object.assign(wrappedInstance, {
+    type: objectTypes.effect,
+    displayName,
     onCall: onCall.subscribe,
     onLoadingChange: onLoadingChange.subscribe,
     cancel,
@@ -260,7 +317,7 @@ function addListener(context, value, callback) {
       }
       callback(result);
     }, context.cancel);
-  } else if (value && value.onDone) {
+  } else if (isStateOrEffect(value)) {
     const removeListener = value.onDone((result) => {
       if (context.isCancelled()) {
         return;
@@ -282,7 +339,7 @@ function handleAsyncRace(parentContext, targetEntries, callback) {
   targetEntries.forEach(([key, item]) => {
     addListener(context, item, (value) => {
       try {
-        result[key] = value;
+        result[key] = true;
         result.$target = item;
         result.$key = key;
         result.$value = value;

@@ -26,7 +26,7 @@ test('reddit', async () => {
   const redditPostsState = state.family(async (subreddit) => {
     const response = await fetch(
       `https://www.reddit.com/r/${subreddit}.json`,
-    ).then((response) => response.json());
+    ).then((res) => res.json());
 
     return {
       receivedAt: new Date(),

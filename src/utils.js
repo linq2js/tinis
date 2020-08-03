@@ -1,5 +1,10 @@
 import iscope from 'iscope';
 
+export const objectTypes = {
+  state: {},
+  effect: {},
+};
+
 export const loadableStates = {
   hasError: 'hasError',
   hasValue: 'hasValue',
@@ -8,6 +13,7 @@ export const loadableStates = {
 export const unset = {};
 export const noop = () => {};
 export const evaluationScope = iscope(() => undefined);
+export const mockingScope = iscope(() => undefined);
 
 export function isIteratorLike(obj) {
   return obj && typeof obj.next === 'function';
@@ -106,9 +112,17 @@ export function createDebounce(func, ms) {
     ms = 0;
   }
   let timeoutId;
-  return function () {
+
+  function cancel() {
     clearTimeout(timeoutId);
+  }
+
+  return function () {
+    cancel();
     timeoutId = setTimeout(func, ms, ...arguments);
+    return {
+      cancel,
+    };
   };
 }
 
@@ -158,5 +172,20 @@ export function delayIn(ms = 0, value, ...args) {
         clearTimeout(timerId);
       },
     },
+  );
+}
+
+export function isState(value) {
+  return value && value.type === objectTypes.state;
+}
+
+export function isEffect(value) {
+  return value && value.type === objectTypes.effect;
+}
+
+export function isStateOrEffect(value) {
+  return (
+    value &&
+    (value.type === objectTypes.state || value.type === objectTypes.effect)
   );
 }

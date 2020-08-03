@@ -7,6 +7,7 @@
   "scripts": {
     "test": "jest",
     "build": "babel src --out-dir dist --source-maps --ignore '**/*.test.js'",
+    "game": "npm run build && node ./dist/game.js",
     "_publish": "npm run test && npm run build && npm publish"
   },
   "bugs": {
@@ -42,6 +43,7 @@
     "@babel/runtime": "^7.7.7",
     "node-fetch": "^2.6.0",
     "@react-native-community/eslint-config": "^2.0.0",
-    "@typescript-eslint/parser": "^3.7.1"
+    "@typescript-eslint/parser": "^3.7.1",
+    "cli-table": "^0.3.1"
   }
 }

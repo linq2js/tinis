@@ -1,6 +1,30 @@
 export const effect: EffectExports;
 export const state: StateExports;
 export const task: TaskExports;
+export const mock: MockExports;
+
+interface MockExports {
+  (effect: Effect<any>): EffectMock;
+  <T>(func: () => T): T;
+  (state: State<any>): StateMock;
+}
+
+interface EffectMock {
+  body(body: any): EffectMock;
+  loading(getterOrValue: any): EffectMock;
+  onCall(): EffectMock;
+  onLoadingChange(): EffectMock;
+  reset(): StateMock;
+}
+
+interface StateMock {
+  value(getterOrValue: any): StateMock;
+  loading(getterOrValue: any): StateMock;
+  error(getterOrValue: any): StateMock;
+  onChange(): StateMock;
+  onLoadingChange(): StateMock;
+  reset(): StateMock;
+}
 
 interface TaskExports {
   debounce(func: Function, ms?: number): Function;
@@ -32,6 +56,7 @@ interface StateOptions<T> {
 }
 
 interface StateExports {
+  (): State<any>;
   <Value>(
     value: Value | /* fallback for custom return type */ Function,
     options?: StateOptions<StateValueInfer<Value>>,
@@ -53,6 +78,18 @@ interface StateExports {
     value: Value | /* fallback for custom return type */ Function,
     options?: StateOptions<StateValueInfer<Value>>,
   ): StateFamily<State<StateValueInfer<Value>>>;
+
+  map<Map extends {[key: string]: State<any>}>(
+    stateMap: Map,
+  ): State<{[key in keyof Map]: StateTypeInfer<Map[key]>}>;
+  map<Map extends {[key: string]: State<any>}, Value>(
+    stateMap: Map,
+    mapper: (value: Map) => Value,
+  ): State<Value>;
+  map<Source, Destination>(
+    state: State<Source>,
+    mapper: (value: Source) => Destination,
+  ): State<Destination>;
 }
 
 type StateTypeInfer<T> = T extends State<infer Type> ? Type : never;
