@@ -123,5 +123,4 @@ To summarize, we've created a todo list app that meets all of our requirements:
 1. Edit todo items
 1. Delete todo items
 1. Filter todo items
-
-Display useful stats
+1. Display useful stats
