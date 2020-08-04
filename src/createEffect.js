@@ -17,6 +17,8 @@ import {
 } from './utils';
 import createLoadable from './createLoadable';
 
+const globalOnCall = createObservable();
+
 export default function createEffect(
   body = noop,
   {displayName, debounce = unset, throttle = unset, latest} = {},
@@ -34,20 +36,19 @@ export default function createEffect(
   let currentContext;
 
   function instance(payload) {
-    const context = (currentContext = createContext());
-    let isAsync = false;
-    let hasError = false;
-    let mockBody = body;
     if (process.env.NODE_ENV !== 'production') {
       const mockingContext = mockingScope();
       if (mockingContext) {
         const mockInstance = mockingContext.get(wrappedInstance);
         if (mockInstance && 'body' in mockInstance.props) {
-          mockBody = mockInstance.props.body;
+          return mockInstance.props.body(...arguments);
         }
       }
     }
-    let result = mockBody(...arguments);
+    const context = (currentContext = createContext());
+    let isAsync = false;
+    let hasError = false;
+    let result = body(...arguments);
     let isResolvedPromise = false;
 
     if (typeof result === 'function') {
@@ -73,7 +74,7 @@ export default function createEffect(
                 return asyncResult;
               }
               try {
-                onCall.dispatch(payload);
+                dispatchOnCall(payload);
               } finally {
                 context.dispose();
               }
@@ -103,7 +104,7 @@ export default function createEffect(
     } finally {
       try {
         if (!isAsync) {
-          onCall.dispatch(payload);
+          dispatchOnCall(payload);
           if (!hasError) {
             loadable.set(loadableStates.hasValue, result);
           }
@@ -116,6 +117,11 @@ export default function createEffect(
     }
   }
 
+  function dispatchOnCall(payload) {
+    onCall.dispatch(payload);
+    globalOnCall.dispatch({payload, target: wrappedInstance});
+  }
+
   function cancel() {
     if (currentContext) {
       currentContext.cancel();
@@ -123,26 +129,61 @@ export default function createEffect(
   }
 
   Object.defineProperties(wrappedInstance, {
+    error: {
+      get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'error');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
+        return loadable.get().state === loadableStates.hasError
+          ? loadable.get().error
+          : undefined;
+      },
+    },
     loading: {
       get() {
-        // noinspection DuplicatedCode
         if (process.env.NODE_ENV !== 'production') {
           const mockResult = tryGetPropValue(wrappedInstance, 'loading');
           if (mockResult.success) {
             return mockResult.value;
           }
         }
-
         return loadable.get().state === loadableStates.loading;
       },
     },
     result: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'result');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
         return loadable.get().value;
+      },
+    },
+    loadable: {
+      get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'loadable');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
+
+        return loadable;
       },
     },
     called: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'called');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
         let removeListener;
         return Object.assign(
           new Promise((resolve) => {
@@ -162,7 +203,7 @@ export default function createEffect(
 
   if (process.env.NODE_ENV !== 'production') {
     wrappedInstance.mockApi = {
-      onCall: onCall.dispatch,
+      onCall: dispatchOnCall,
       onLoadingChange: onLoadingChange.dispatch,
     };
   }
@@ -298,7 +339,7 @@ function handleYield(context, value, callback) {
       // yield [ state1, state2, state3 ]
       handleAsyncAll(context, value, callback);
     }
-  } else if (isPlainObject(value)) {
+  } else if (!isStateOrEffect(value) && isPlainObject(value)) {
     // yield { state1, state2, state3 }
     handleAsyncRace(context, Object.entries(value), callback);
   } else {
@@ -400,3 +441,10 @@ function handleAsyncChain(parentContext, targets, callback) {
     });
   });
 }
+
+Object.assign(createEffect, {
+  any: {
+    type: objectTypes.effect,
+    onDone: globalOnCall.subscribe,
+  },
+});

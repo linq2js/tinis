@@ -12,7 +12,7 @@ test('state mock', () => {
     expect(countState.loading).toBe(true);
     expect(countState.error).toBeInstanceOf(Error);
 
-    mock(countState).reset();
+    mock(countState).remove();
 
     expect(countState.value).toBe(1);
     expect(countState.loading).toBe(false);
@@ -36,7 +36,7 @@ test('effect mock', () => {
   mock(() => {
     mock(increase).body(mockedBody).loading(true).onCall();
     increase();
-    expect(onCallCallback).toBeCalledTimes(2);
+    expect(onCallCallback).toBeCalledTimes(1);
     expect(increase.loading).toBe(true);
     expect(mockedBody).toBeCalledTimes(1);
   });
@@ -44,7 +44,7 @@ test('effect mock', () => {
   increase();
   expect(defaultBody).toBeCalledTimes(1);
   expect(mockedBody).toBeCalledTimes(1);
-  expect(onCallCallback).toBeCalledTimes(3);
+  expect(onCallCallback).toBeCalledTimes(2);
   expect(increase.loading).toBe(false);
   expect(increase.error).toBeUndefined();
 });

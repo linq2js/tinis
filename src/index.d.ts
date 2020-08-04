@@ -12,18 +12,24 @@ interface MockExports {
 interface EffectMock {
   body(body: any): EffectMock;
   loading(getterOrValue: any): EffectMock;
+  called(getterOrValue: any): EffectMock;
+  error(getterOrValue: any): EffectMock;
+  loadable(getterOrValue: any): EffectMock;
   onCall(): EffectMock;
   onLoadingChange(): EffectMock;
-  reset(): StateMock;
+  remove(): void;
 }
 
 interface StateMock {
   value(getterOrValue: any): StateMock;
   loading(getterOrValue: any): StateMock;
   error(getterOrValue: any): StateMock;
+  loadable(getterOrValue: any): EffectMock;
+  changed(getterOrValue: any): EffectMock;
+  ready(getterOrValue: any): EffectMock;
   onChange(): StateMock;
   onLoadingChange(): StateMock;
-  reset(): StateMock;
+  remove(): void;
 }
 
 interface TaskExports {
@@ -41,11 +47,13 @@ interface TaskExports {
 interface EffectExports {
   <Return>(
     body?:
-      | ((...args: any[]) => (context: Context) => Return)
-      | ((...args: any[]) => Return)
+      | ((...args: any[]) => (context: Context) => any)
+      | ((...args: any[]) => any)
       | Function,
     options?: EffectOptions<EffectReturnInfer<Return>>,
   ): Effect<EffectReturnInfer<Return>>;
+
+  any: Awaitable;
 }
 
 interface StateOptions<T> {

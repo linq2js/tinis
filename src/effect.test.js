@@ -1,4 +1,4 @@
-import {effect, state} from './index';
+import {effect, state, task} from './index';
 
 const delayIn = (ms = 0) =>
   Object.assign(new Promise((resolve) => setTimeout(resolve, ms)), {
@@ -247,4 +247,53 @@ test('yield nothing', () => {
     yield;
   });
   doNothing();
+});
+
+test('long press', async () => {
+  const callback = jest.fn();
+  const mouseup = effect();
+  const mousedown = effect();
+  const longPressEpic = effect(function* () {
+    while (true) {
+      yield mousedown;
+      yield {
+        mouseup,
+        pressed: task.delay(100, callback),
+      };
+    }
+  });
+  longPressEpic();
+
+  mousedown();
+  await task.delay(50);
+  mouseup();
+  expect(callback).toBeCalledTimes(0);
+  mousedown();
+  await task.delay(150);
+  mouseup();
+  expect(callback).toBeCalledTimes(1);
+});
+
+test('handle any effect call', async () => {
+  const effect1 = effect();
+  const effect2 = effect();
+  const callback = jest.fn();
+  const epic = effect(function* () {
+    while (true) {
+      const result = yield effect.any;
+      callback(result);
+    }
+  });
+
+  epic();
+
+  effect2(2);
+  effect1(1);
+
+  await delayIn();
+
+  expect(callback.mock.calls).toEqual([
+    [{target: effect2, payload: 2}],
+    [{target: effect1, payload: 1}],
+  ]);
 });

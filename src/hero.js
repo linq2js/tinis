@@ -1,6 +1,7 @@
-import Table from 'cli-table';
+import {createTerminal} from 'terminal-kit';
 import {effect, state} from './index';
 
+const term = createTerminal();
 const mapSize = 5;
 const monsterMaxAttack = 5;
 const monsterMaxLife = 50;
@@ -43,10 +44,9 @@ const move = effect(function* ({x: offsetX = 0, y: offsetY = 0}) {
 });
 
 const drinkPotion = effect(function* () {
-  console.log('');
-  console.log('You found potion !');
+  term.green('You found potion !\n');
   life.value += potionRecoveryLife;
-  console.log(`Hero has recovered ${potionRecoveryLife} life`);
+  term.green(`Hero has recovered ${potionRecoveryLife} life\n`);
   showHeroInfo();
 });
 
@@ -77,59 +77,70 @@ function showHeroInfo() {
   showObjectInfo('Hero', life.value);
 }
 
-function printTable(rows, head) {
-  const options = {};
-  if (head) {
-    if (typeof head === 'string') {
-      printTable([[head.toUpperCase()]]);
-    } else {
-      options.head = head;
-    }
-  }
-  const table = new Table(options);
-  table.push(...rows);
-  console.log(table.toString());
-}
-
-function showMovementKeys() {
-  console.log('A (left), W (up), D (right), S (down)');
-}
-
 function showObjectInfo(name, life) {
   console.log(`[${name}] Life: ${life}`);
 }
 
+function showMenu(itemsWithShortcuts, hintText, callback, selectedIndex) {
+  const items = Object.values(itemsWithShortcuts);
+  hintText && showHint(hintText);
+  term.singleColumnMenu(
+    items,
+    {
+      leftPadding: ' ',
+      exitOnUnexpectedKey: true,
+      selectedIndex,
+    },
+    (error, {selectedIndex, unexpectedKey}) => {
+      if (unexpectedKey) {
+        const shortcut = unexpectedKey.toLowerCase();
+        if (shortcut in itemsWithShortcuts) {
+          return callback(
+            shortcut,
+            itemsWithShortcuts[shortcut],
+            selectedIndex,
+          );
+        }
+        showError('Invalid selection');
+        return showMenu(itemsWithShortcuts, hintText, callback, selectedIndex);
+      }
+      return callback(
+        Object.keys(itemsWithShortcuts)[selectedIndex],
+        items[selectedIndex],
+        selectedIndex,
+      );
+    },
+  );
+}
+
+let lastMovementSelectedIndex;
 function listenMovingKeys() {
-  console.log('');
-  console.log('? Press the key below to move your hero:');
-  showMovementKeys();
-  onKeyPress((key) => {
-    if (key in directionMap) {
+  showMenu(
+    {
+      a: 'Left',
+      d: 'Right',
+      w: 'Up',
+      s: 'Down',
+    },
+    '? Please select hero movement',
+    (key, value, index) => {
+      lastMovementSelectedIndex = index;
       directionMap[key]();
-      return false;
-    } else {
-      console.log('Invalid movement key: ' + key);
-      showMovementKeys();
-      return true;
-    }
-  });
+    },
+    lastMovementSelectedIndex,
+  );
 }
 
-function heading(text, border) {
-  if (border) {
-    printTable([[text]]);
-  } else {
-    console.log(text.toUpperCase());
-  }
+function showError(text) {
+  term.red(text + '\n');
 }
 
-function listenAnyKey(message) {
-  console.log(message);
+function showHint(text) {
+  term.cyan(text + '\n');
+}
 
-  onKeyPress(() => {
-    anyKeyPressed();
-    return false;
-  });
+function showHeading(text) {
+  term.cyan(text.toUpperCase() + '\n');
 }
 
 function generateMap() {
@@ -141,31 +152,40 @@ function generateMap() {
   }
 }
 
-function showMap() {
+function showMap(text = 'Map') {
+  showHeading(text);
+  map.forEach((row, rowIndex) => {
+    console.log('');
+    row.forEach((value, columnIndex) => {
+      if (rowIndex === position.value.y && columnIndex === position.value.x) {
+        term.bgRed('   ');
+      } else {
+        term.bgGreen('   ');
+      }
+    });
+  });
   console.log('');
-  heading('Map');
-  printTable(
-    map.map((columns, row) =>
-      columns.map((value, column) =>
-        row === position.value.y && column === position.value.x ? 'x' : value,
-      ),
-    ),
+}
+
+function showBattleMenu() {
+  showMenu(
+    {
+      continue: 'Attach monster',
+      run: 'Run',
+    },
+    undefined,
+    (key) => {
+      if (key === 'run') {
+        run();
+      } else {
+        continueBattle();
+      }
+    },
   );
 }
 
-function onKeyPress(listener) {
-  const stdin = process.stdin;
-
-  stdin.setRawMode(true);
-  stdin.setEncoding('utf8');
-
-  function wrappedListener(key) {
-    if (listener(key) === false) {
-      stdin.off('data', wrappedListener);
-    }
-  }
-  stdin.on('data', wrappedListener);
-}
+const run = effect();
+const continueBattle = effect();
 
 const battleEpic = effect(function* () {
   const monsterLifeValue = Math.ceil(
@@ -174,12 +194,12 @@ const battleEpic = effect(function* () {
 
   const monsterLife = state(monsterLifeValue);
   console.log('');
-  console.log('A monster found');
-  heading('Battle start', true);
+  showError('A monster found');
+  showHeading('Battle start', true);
 
   function showBattleSummary() {
     console.log('');
-    heading('Summary');
+    showHeading('Summary');
     showHeroInfo();
     showObjectInfo('Monster', monsterLife.value);
   }
@@ -187,10 +207,13 @@ const battleEpic = effect(function* () {
   // forever loop for battle
   // the loop will be ended when hero is die or monster is killed
   while (true) {
-    console.log('');
-    listenAnyKey('? Press any key to attack monster');
-    yield anyKeyPressed;
+    showBattleMenu();
 
+    const userSelection = yield {continueBattle, run};
+
+    if (userSelection.run) {
+      return;
+    }
     // hero attack phase
     const heroAttackValue = Math.ceil(Math.random() * heroMaxAttack);
     console.log('Hero attacks: ' + heroAttackValue);
@@ -198,7 +221,7 @@ const battleEpic = effect(function* () {
 
     // monster is killed
     if (!monsterLife.value) {
-      heading('You won', true);
+      showHeading('You won', true);
       return;
     }
 
@@ -209,7 +232,7 @@ const battleEpic = effect(function* () {
 
     // hero is die
     if (!life.value) {
-      heading('You lose', true);
+      showHeading('You lose', true);
       return;
     }
 
@@ -219,7 +242,7 @@ const battleEpic = effect(function* () {
 });
 
 export default effect(function* () {
-  heading('Game started', true);
+  showHeading('Game started', true);
   generateMap();
   showHeroInfo();
   showMap();
@@ -242,7 +265,7 @@ export default effect(function* () {
       }
 
       // continue to listen movement keys
-      console.log('Cannot move');
+      showError('Cannot move');
     }
 
     // after moving, we generate some random object
@@ -263,5 +286,5 @@ export default effect(function* () {
       console.log('You place is safe');
     }
   }
-  heading('Game Over', true);
+  showHeading('Game Over', true);
 });

@@ -1,3 +1,4 @@
+import {tryGetPropValue} from './mock';
 import createArrayKeyedMap from './createArrayKeyedMap';
 import {
   createObservable,
@@ -15,6 +16,8 @@ import {
 } from './utils';
 import createLoadable from './createLoadable';
 import StateBase from './StateBase';
+
+const globalOnChange = createObservable();
 
 export default function createState(
   initial,
@@ -148,7 +151,7 @@ export default function createState(
       }
       if (!initializing) {
         evaluationScope(null, () => {
-          onChange.dispatch();
+          dispatchOnChange();
         });
       }
       if (currentError) {
@@ -237,7 +240,7 @@ export default function createState(
     currentValue = unset;
     getValue();
     if (prevValue !== currentValue) {
-      onChange.dispatch();
+      dispatchOnChange();
     }
     // if (loadable.get().state === loadableStates.loading) {
     //   handleLoadingState();
@@ -327,6 +330,11 @@ export default function createState(
     return setValue(nextValue, markAsDirty);
   }
 
+  function dispatchOnChange() {
+    onChange.dispatch();
+    globalOnChange.dispatch({target: wrappedInstance});
+  }
+
   Object.defineProperties(wrappedInstance, {
     error: {
       get() {
@@ -374,15 +382,9 @@ export default function createState(
     loading: {
       get() {
         if (process.env.NODE_ENV !== 'production') {
-          const mockingContext = mockingScope();
-          if (mockingContext) {
-            const mockInstance = mockingContext.get(wrappedInstance);
-            if (mockInstance && 'loading' in mockInstance.props) {
-              if (typeof mockInstance.props.loading === 'function') {
-                return mockInstance.props.loading();
-              }
-              return mockInstance.props.loading;
-            }
+          const mockResult = tryGetPropValue(wrappedInstance, 'loading');
+          if (mockResult.success) {
+            return mockResult.value;
           }
         }
         getValue();
@@ -391,17 +393,35 @@ export default function createState(
     },
     loadable: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'loadable');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
         getValue();
         return loadable.get();
       },
     },
     ready: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'ready');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
         return new Promise((resolve) => onReady(resolve));
       },
     },
     changed: {
       get() {
+        if (process.env.NODE_ENV !== 'production') {
+          const mockResult = tryGetPropValue(wrappedInstance, 'changed');
+          if (mockResult.success) {
+            return mockResult.value;
+          }
+        }
         return new Promise((resolve) => onChange.subscribe(resolve));
       },
     },
@@ -411,7 +431,7 @@ export default function createState(
 
   if (process.env.NODE_ENV !== 'production') {
     wrappedInstance.mockApi = {
-      onChange: onChange.dispatch,
+      onChange: dispatchOnChange,
       onLoadingChange: onLoadingChange.dispatch,
     };
   }
@@ -422,6 +442,10 @@ Object.assign(createState, {
   history: createHistory,
   family: createFamily,
   map: createMap,
+  any: {
+    type: objectTypes.state,
+    onDone: globalOnChange.subscribe,
+  },
 });
 
 function createMap(states, mapper, options = {}) {
@@ -620,13 +644,13 @@ function createHistoryEntry(values, index, updatedOn) {
     all: values,
     updatedOn,
   };
+  Object.assign(result, {
+    length: values.length,
+    current: values[index],
+    forward: values.length && index < values.length - 1,
+    back: values.length && !!index,
+  });
   Object.defineProperties(result, {
-    length: createHistoryEntryProp(() => values.length),
-    current: createHistoryEntryProp(() => values[index]),
-    forward: createHistoryEntryProp(
-      () => values.length && index < values.length - 1,
-    ),
-    back: createHistoryEntryProp(() => values.length && !!index),
     prev: createHistoryEntryProp(() => prev || (prev = values.slice(0, index))),
     next: createHistoryEntryProp(
       () => next || (next = values.slice(index + 1)),

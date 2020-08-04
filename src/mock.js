@@ -20,6 +20,7 @@ function getMockInstance(target) {
       throw new Error('No mock supported for ' + typeof target);
     }
     mockingContext.set(target, instance);
+    instance.remove = () => mockingContext.delete(target);
   }
   return instance;
 }
@@ -58,6 +59,14 @@ function createMockInstance(target) {
       props.value = newValue;
       return this;
     },
+    result(newValue) {
+      props.result = newValue;
+      return this;
+    },
+    called(newValue) {
+      props.called = newValue;
+      return this;
+    },
     error(newValue) {
       props.error = newValue;
       return this;
@@ -76,10 +85,6 @@ function createMockInstance(target) {
     },
     onLoadingChange() {
       target.mockApi.onLoadingChange();
-      return this;
-    },
-    reset() {
-      this.props = props = {};
       return this;
     },
   };
