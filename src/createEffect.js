@@ -18,6 +18,7 @@ import {
 import createLoadable from './createLoadable';
 
 const globalOnCall = createObservable();
+const resolvedPromise = Object.assign(Promise.resolve(void 0), {cancel: noop});
 
 export default function createEffect(
   body = noop,
@@ -97,7 +98,7 @@ export default function createEffect(
         loadable.promise = wrappedPromise;
         return wrappedPromise;
       }
-      return result;
+      return resolvedPromise;
     } catch (e) {
       hasError = true;
       loadable.set(loadableStates.hasError, e);

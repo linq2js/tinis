@@ -4,7 +4,7 @@ export const task: TaskExports;
 export const mock: MockExports;
 
 interface MockExports {
-  (effect: Effect<any>): EffectMock;
+  (effect: Effect<DefaultEffectBody>): EffectMock;
   <T>(func: () => T): T;
   (state: State<any>): StateMock;
 }
@@ -44,14 +44,16 @@ interface TaskExports {
   delay<T>(ms: number, value?: T): CancelablePromise<T>;
 }
 
-interface EffectExports {
-  <Return>(
-    body?:
-      | ((...args: any[]) => (context: Context) => any)
-      | ((...args: any[]) => any)
-      | Function,
-    options?: EffectOptions<EffectReturnInfer<Return>>,
-  ): Effect<EffectReturnInfer<Return>>;
+interface EffectExports extends Function {
+  (options?: EffectOptions): Effect<DefaultEffectBody>;
+  <Body extends (...args: any[]) => (context: Context) => any>(
+    body: Body,
+    options?: EffectOptions,
+  ): Effect<Body>;
+  <Body extends (...args: any[]) => any>(
+    body: Body,
+    options?: EffectOptions,
+  ): Effect<Body>;
 
   any: Awaitable;
 }
@@ -61,9 +63,10 @@ interface StateOptions<T> {
   debounce?: boolean | number;
   throttle?: boolean | number;
   displayName?: string;
+  readonly?: boolean;
 }
 
-interface StateExports {
+interface StateExports extends Function {
   (): State<any>;
   <Value>(
     value: Value | /* fallback for custom return type */ Function,
@@ -89,14 +92,17 @@ interface StateExports {
 
   map<Map extends {[key: string]: State<any>}>(
     stateMap: Map,
+    options?: StateOptions<{[key in keyof Map]: StateTypeInfer<Map[key]>}>,
   ): State<{[key in keyof Map]: StateTypeInfer<Map[key]>}>;
   map<Map extends {[key: string]: State<any>}, Value>(
     stateMap: Map,
     mapper: (value: Map) => Value,
+    options?: StateOptions<Value>,
   ): State<Value>;
   map<Source, Destination>(
     state: State<Source>,
     mapper: (value: Source) => Destination,
+    options?: StateOptions<Destination>,
   ): State<Destination>;
 }
 
@@ -122,11 +128,12 @@ export interface State<T> extends Awaitable {
    */
   mutate(value: T | Promise<T>): CancellablePromiseInfer<T>;
 
+  mutate(asyncValue: Promise<T>): CancellablePromiseInfer<T>;
   /**
    * reduce state value with specified reducer
-   * @param reducer
+   * @param reducers
    */
-  mutate(reducer: (value?: T) => T | Promise<T>): CancellablePromiseInfer<T>;
+  mutate(...reducers: ((value?: T) => T)[]): CancellablePromiseInfer<T>;
   onChange(listener: Listener): RemoveListener;
   onReady(listener: Listener): RemoveListener;
   onLoadingChange(listener: Listener): RemoveListener;
@@ -136,6 +143,11 @@ export interface State<T> extends Awaitable {
   filter(
     predicate: (value?: ArrayItemInfer<T>, index?: number) => boolean,
   ): CancellablePromiseInfer<T>;
+
+  mapTo<Destination>(
+    mapper: (value: T) => Destination,
+    options?: StateOptions<Destination>,
+  ): State<Destination>;
 }
 
 type ArrayItemInfer<T> = T extends Array<infer Item> ? Item : never;
@@ -153,15 +165,19 @@ type StateValueInfer<T> = T extends () => Promise<infer Resolved>
   ? any
   : T;
 
-export interface Effect<T> extends Function, Awaitable {
-  (...args: any[]): T;
+export interface Effect<Body extends DefaultEffectBody>
+  extends Function,
+    Awaitable {
+  (...args: Parameters<Body>): CancelablePromise<void>;
   loading: boolean;
   called(): CancelablePromise<void>;
   onCall(listener: Listener): RemoveListener;
   onLoadingChange(listener: Listener): RemoveListener;
 }
 
-interface EffectOptions<T> {
+type DefaultEffectBody = (...args: any[]) => any;
+
+interface EffectOptions {
   debounce?: false | number;
   throttle?: false | number;
   latest?: boolean;

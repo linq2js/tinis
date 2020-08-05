@@ -29,6 +29,8 @@ export default function createState(
     throttle,
     onChanging,
     onChanged,
+    readonly,
+    internalMutating,
   } = {},
 ) {
   let currentValue = unset;
@@ -59,12 +61,28 @@ export default function createState(
     onChange: onChange.subscribe,
     onLoadingChange: onLoadingChange.subscribe,
     onReady,
-    mutate: setValue,
+    mutate,
     reset,
     eval: getValue,
     freeze,
     unfreeze,
+    mapTo,
   });
+
+  function avoidToMutateReadonlyState() {
+    if (readonly && !internalMutating) {
+      throw new Error('Cannot mutate readonly state');
+    }
+  }
+
+  function mapTo(mapper, options) {
+    return createMap(wrappedInstance, mapper, options);
+  }
+
+  function mutate(...values) {
+    avoidToMutateReadonlyState();
+    return values.reduce((prev, value) => setValue(value), undefined);
+  }
 
   function getValue() {
     if (currentValue !== unset) {
@@ -377,7 +395,10 @@ export default function createState(
         registerDependency();
         return result;
       },
-      set: wrappedSetValue,
+      set(value) {
+        avoidToMutateReadonlyState();
+        return wrappedSetValue(value);
+      },
     },
     loading: {
       get() {
@@ -442,6 +463,9 @@ Object.assign(createState, {
   history: createHistory,
   family: createFamily,
   map: createMap,
+  extend(...props) {
+    Object.assign(StateBase.prototype, ...props);
+  },
   any: {
     type: objectTypes.state,
     onDone: globalOnChange.subscribe,
@@ -449,18 +473,23 @@ Object.assign(createState, {
 });
 
 function createMap(states, mapper, options = {}) {
-  let previous;
+  let previous = options.default;
   // single state map
   if (isState(states)) {
     const state = states;
     if (!mapper) {
       throw new Error('mapper required');
     }
-    previous = options.default;
-    return createState(() => {
-      const value = state.value;
-      return (previous = mapper(value, previous));
-    }, options);
+    return createState(
+      () => {
+        const value = state.value;
+        return (previous = mapper(value, previous));
+      },
+      {
+        ...options,
+        readonly: true,
+      },
+    );
   } else {
     if (!states) {
       throw new Error('state map required');
@@ -611,6 +640,7 @@ function createHistory(states, {max, debounce, ...options} = {}) {
 
   const shadowState = createState(undefined, {
     ...options,
+    internalMutating: true,
     readonly: true,
   });
 

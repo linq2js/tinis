@@ -28,9 +28,7 @@ test('cancel effect', async () => {
 
   // turn off async mode
   async = false;
-  // so effect result is undefined
-  const notPromise = doSomething();
-  expect(notPromise).toBeUndefined();
+  doSomething();
   expect(callback).toBeCalledTimes(2);
 });
 

@@ -150,3 +150,38 @@ test('async state dependency', async () => {
 
   expect(todosState.value).toEqual(initialData.concat(newTodo));
 });
+
+test('state map', async () => {
+  const countState = state(
+    async () => {
+      await delayIn(5);
+      return 2;
+    },
+    {
+      default: 1,
+    },
+  );
+  const doubleCountState = countState.mapTo((x) => x * 2);
+  const allCountState = state.map({
+    double: doubleCountState,
+    count: countState,
+  });
+  const countHistory = countState.mapTo((value, seed = []) =>
+    seed.concat([value]),
+  );
+
+  expect(doubleCountState.value).toBe(2);
+  expect(allCountState.value).toEqual({double: 2, count: 1});
+  expect(countHistory.value).toEqual([1]);
+
+  await delayIn(10);
+
+  expect(doubleCountState.value).toBe(4);
+  expect(allCountState.value).toEqual({double: 4, count: 2});
+  expect(countHistory.value).toEqual([1, 2]);
+});
+
+test('readonly state', () => {
+  const countState = state(0, {readonly: true});
+  expect(() => countState.value++).toThrow('Cannot mutate readonly state');
+});
