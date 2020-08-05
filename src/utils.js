@@ -175,6 +175,14 @@ export function delayIn(ms = 0, value, ...args) {
   );
 }
 
+export function wrapFunction(func, debounce, throttle) {
+  return debounce !== unset && debounce !== null && debounce !== false
+    ? createDebounce(func, debounce)
+    : throttle !== unset && throttle !== null && throttle !== false
+    ? createThrottle(func, throttle)
+    : func;
+}
+
 export function isState(value) {
   return value && value.type === objectTypes.state;
 }

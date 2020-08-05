@@ -4,12 +4,13 @@ A tiny state management that is inspired on RecoilJs
 
 Table of contents
 
-1. [Intro](#intro);
-1. [States](#states);
-1. [Derived states](#derived-states);
-1. [State family](#state-family);
-1. [Asynchronous states](#asynchronous-states);
-1. [Handling state value changing](#handling-state-value-changing);
+1. [Intro](#intro)
+1. [States](#states)
+1. [Derived states](#derived-states)
+1. [State family](#state-family)
+1. [Asynchronous states](#asynchronous-states)
+1. [Handling state value changing](#handling-state-value-changing)
+1. [State Persistence](#state-persistence)
 
 ## Intro
 
@@ -202,4 +203,31 @@ console.log(currentUserNameState.error); // Http Error
 const countState = state(0);
 countState.onChange(() => console.log(countState.value));
 countState.value++;
+```
+
+## State Persistence
+
+To persist state, subscribe to state changes and record the new state.
+
+```jsx harmony
+// load appData from localStorage
+const localStorageAppDataState = state(() => {
+  return JSON.parse(localStorage.getItem('appData'));
+});
+
+const userToken = localStorageAppDataState.mapTo((value) => value.token);
+const userProfile = localStorageAppDataState.mapTo((value) => value.profile);
+
+const appDataState = state.map({
+  token: userToken,
+  profile: userProfile,
+});
+
+// when appDataState changed, save its value to local storage
+appDataState.onChange(() => {
+  localStorage.setItem('appData', JSON.stringify(appDataState.value));
+});
+
+// update states
+userProfile.value = {email: 'test@tempuri.org'};
 ```

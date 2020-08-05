@@ -13,6 +13,7 @@ import {
   objectTypes,
   isState,
   mockingScope,
+  wrapFunction,
 } from './utils';
 import createLoadable from './createLoadable';
 import StateBase from './StateBase';
@@ -31,6 +32,7 @@ export default function createState(
     onChanged,
     readonly,
     internalMutating,
+    dirtyGetter,
   } = {},
 ) {
   let currentValue = unset;
@@ -47,12 +49,17 @@ export default function createState(
   const onLoadingChange = createObservable();
   const onChange = createObservable();
   const reducers = [];
-  const wrappedSetValue =
-    debounce !== unset && debounce !== null && debounce !== false
-      ? createDebounce(setValue, debounce)
-      : throttle !== unset && throttle !== null && throttle !== false
-      ? createThrottle(setValue, throttle)
-      : setValue;
+  const wrappedSetValue = wrapFunction(setValue, debounce, throttle);
+  const wrappedHandleLoadingState = wrapFunction(
+    handleLoadingState,
+    debounce,
+    throttle,
+  );
+  const wrappedHandleDependencyChange = wrapFunction(
+    handleDependencyChange,
+    debounce,
+    throttle,
+  );
   // notify loading change can be async, so we make debounced wrapper for it to avoid multiple call at time
   const wrappedNotifyLoadingChange = createDebounce(notifyLoadingChange, 0);
   const wrappedInstance = new StateBase({
@@ -63,11 +70,18 @@ export default function createState(
     onReady,
     mutate,
     reset,
-    eval: getValue,
+    eval() {
+      getValue();
+      return wrappedInstance;
+    },
     freeze,
     unfreeze,
     mapTo,
   });
+
+  if (!dirtyGetter) {
+    dirtyGetter = () => isDirty;
+  }
 
   function avoidToMutateReadonlyState() {
     if (readonly && !internalMutating) {
@@ -193,7 +207,7 @@ export default function createState(
         reset();
       } else {
         dependenciesChanged = false;
-        handleLoadingState();
+        wrappedHandleLoadingState();
       }
     }
   }
@@ -217,9 +231,9 @@ export default function createState(
     }
 
     dependencies.add(parent);
-    parent.onChange(handleDependencyChange);
-    parent.onLoadingChange(handleLoadingState);
-    handleLoadingState();
+    parent.onChange(wrappedHandleDependencyChange);
+    parent.onLoadingChange(wrappedHandleLoadingState);
+    wrappedHandleLoadingState();
   }
 
   function handleLoadingState() {
@@ -260,9 +274,6 @@ export default function createState(
     if (prevValue !== currentValue) {
       dispatchOnChange();
     }
-    // if (loadable.get().state === loadableStates.loading) {
-    //   handleLoadingState();
-    // }
   }
 
   function processAsyncValue(promise, markAsDirty) {
@@ -372,9 +383,7 @@ export default function createState(
       },
     },
     dirty: {
-      get() {
-        return isDirty;
-      },
+      get: dirtyGetter,
     },
     value: {
       get() {
@@ -448,7 +457,7 @@ export default function createState(
     },
   });
 
-  loadable.onChange(handleLoadingState);
+  loadable.onChange(wrappedHandleLoadingState);
 
   if (process.env.NODE_ENV !== 'production') {
     wrappedInstance.mockApi = {
@@ -472,6 +481,17 @@ Object.assign(createState, {
   },
 });
 
+function createMapper(mapper) {
+  if (!mapper) {
+    return mapper;
+  }
+  if (typeof mapper === 'function') {
+    return mapper;
+  }
+  const prop = mapper;
+  return (value) => value[prop];
+}
+
 function createMap(states, mapper, options = {}) {
   let previous = options.default;
   // single state map
@@ -480,6 +500,9 @@ function createMap(states, mapper, options = {}) {
     if (!mapper) {
       throw new Error('mapper required');
     }
+
+    mapper = createMapper(mapper);
+
     return createState(
       () => {
         const value = state.value;
@@ -487,21 +510,32 @@ function createMap(states, mapper, options = {}) {
       },
       {
         ...options,
-        readonly: true,
+        dirtyGetter: () => state.dirty,
       },
     );
   } else {
     if (!states) {
       throw new Error('state map required');
     }
+    // map(states, options)
+    if (typeof mapper === 'object') {
+      options = mapper;
+      mapper = undefined;
+    }
+    mapper = createMapper(mapper);
     const entries = Object.entries(states);
-    return createState(() => {
-      const result = {};
-      entries.forEach(([key, state]) => {
-        result[key] = state.value;
-      });
-      return (previous = mapper ? mapper(result, previous) : result);
-    });
+    return createState(
+      () => {
+        const result = {};
+        entries.forEach(([key, state]) => {
+          result[key] = state.value;
+        });
+        return (previous = mapper ? mapper(result, previous) : result);
+      },
+      {
+        ...options,
+      },
+    );
   }
 }
 

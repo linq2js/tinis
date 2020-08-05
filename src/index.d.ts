@@ -118,8 +118,9 @@ export interface State<T> extends Awaitable {
    * get loading status of state
    */
   loading: boolean;
+  dirty: boolean;
   reset(): CancelablePromise<T>;
-  eval(): void;
+  eval(): State<T>;
   changed: CancelablePromise<T>;
   ready: CancelablePromise<T>;
   /**

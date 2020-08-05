@@ -185,3 +185,61 @@ test('readonly state', () => {
   const countState = state(0, {readonly: true});
   expect(() => countState.value++).toThrow('Cannot mutate readonly state');
 });
+
+test('state persistent', async () => {
+  const stateChangeCallback = jest.fn();
+  const remoteProfileState = state(
+    async () => {
+      await delayIn(5);
+      return {
+        email: 'abc@def.com',
+        password: '123456',
+      };
+    },
+    {
+      default: {
+        email: '',
+        password: '',
+      },
+    },
+  );
+
+  const emailState = state(() => remoteProfileState.value.email);
+  const passwordState = state(() => remoteProfileState.value.password);
+
+  const persistentState = state.map(
+    {
+      email: emailState,
+      password: passwordState,
+    },
+    {
+      debounce: true,
+    },
+  );
+
+  persistentState.onChange(() => {
+    stateChangeCallback();
+  });
+
+  persistentState.eval();
+
+  await delayIn(10);
+
+  expect(persistentState.value).toEqual({
+    email: 'abc@def.com',
+    password: '123456',
+  });
+  expect(stateChangeCallback).toBeCalledTimes(1);
+
+  // change password
+  passwordState.value = 'new password';
+  emailState.value = 'new email';
+
+  await delayIn(10);
+
+  expect(persistentState.value).toEqual({
+    email: 'new email',
+    password: 'new password',
+  });
+  expect(stateChangeCallback).toBeCalledTimes(2);
+});
