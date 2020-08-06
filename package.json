@@ -1,7 +1,7 @@
 {
   "name": "tinis",
-  "version": "0.0.0",
-  "description": "A state management that is inspired on RecoilJs",
+  "version": "0.0.2",
+  "description": "A tiny state management that is inspired on RecoilJs",
   "main": "dist/index.js",
   "types": "src/index.d.ts",
   "scripts": {

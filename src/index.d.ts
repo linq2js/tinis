@@ -103,11 +103,29 @@ interface StateExports extends Function {
     mapper: (value: Source) => Value,
     options?: StateOptions<Value>,
   ): State<Value>;
+
+  from<Source extends State<any>[]>(
+    stateTuple: Source,
+    options?: StateOptions<
+      {[key in keyof Source]: StateTypeInfer<Source[key]>}
+    >,
+  ): State<{[key in keyof Source]: StateTypeInfer<Source[key]>}>;
+  from<Source extends State<any>[], Value>(
+    stateTuple: Source,
+    mapper: (value: Source) => Value,
+    options?: StateOptions<Value>,
+  ): State<Value>;
+
   from<Value, Destination>(
     state: State<Value>,
     mapper: (value: Value) => Destination,
     options?: StateOptions<Destination>,
   ): State<Destination>;
+
+  batch<Return, Params extends any[]>(
+    func: (...args: Params) => Return,
+    ...args: Params
+  ): Return;
 }
 
 interface StateMap<T extends {[key: string]: any}>
@@ -171,13 +189,10 @@ export interface State<T> extends Awaitable {
 interface StateOperators<T> {
   /**
    *
-   * @param sourceProp
-   * @param destProp
+   * @param source
+   * @param dest
    */
-  swap(
-    sourceProp: number | string,
-    destProp: number | string,
-  ): CancellablePromiseInfer<T>;
+  swap(source: KeyOf<T>, dest: KeyOf<T>): CancellablePromiseInfer<T>;
 
   /**
    *
@@ -239,14 +254,33 @@ interface StateOperators<T> {
    *
    * @param props
    */
-  assign(...props: {[key in keyof T]: T[key]}[]): CancellablePromiseInfer<T>;
+  assign(...props: any[]): CancellablePromiseInfer<T>;
 
   /**
    *
    * @param props
    */
-  delete(...props: (number | string)[]): CancellablePromiseInfer<T>;
+  delete(...props: KeyOf<T>[]): CancellablePromiseInfer<T>;
+
+  add(): CancellablePromiseInfer<T>;
+  add(value: Timespan): CancellablePromiseInfer<T>;
+  add(value: number): CancellablePromiseInfer<T>;
+  add(value: string): CancellablePromiseInfer<T>;
+
+  toggle(): CancellablePromiseInfer<T>;
 }
+
+interface Timespan {
+  years?: number;
+  months?: number;
+  days?: number;
+  hours?: number;
+  seconds?: number;
+  minutes?: number;
+  milliseconds?: number;
+}
+
+type KeyOf<T> = keyof T;
 
 type ArrayItemInfer<T> = T extends Array<infer Item> ? Item : never;
 

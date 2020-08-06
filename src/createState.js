@@ -1,3 +1,4 @@
+import iscope from 'iscope';
 import {tryGetPropValue} from './mock';
 import createArrayKeyedMap from './createArrayKeyedMap';
 import {
@@ -19,6 +20,7 @@ import createLoadable from './createLoadable';
 import StateOp from './StateOp';
 
 const globalOnChange = createObservable();
+const batchScope = iscope(() => {});
 
 export default function createState(
   initial,
@@ -384,8 +386,14 @@ export default function createState(
   }
 
   function dispatchOnChange() {
-    onChange.dispatch();
-    globalOnChange.dispatch({target: wrappedInstance});
+    const batch = batchScope();
+    if (batch && batch.active) {
+      batch.add(onChange.subscriptions);
+      batch.add(globalOnChange.subscriptions, {target: wrappedInstance});
+    } else {
+      onChange.dispatch();
+      globalOnChange.dispatch({target: wrappedInstance});
+    }
   }
 
   Object.defineProperties(wrappedInstance, {
@@ -504,7 +512,49 @@ Object.assign(createState, {
     type: objectTypes.state,
     onDone: globalOnChange.subscribe,
   },
+  batch: batchUpdate,
 });
+
+function batchUpdate(func, ...args) {
+  const subscriptionGroups = [];
+  const scope = {
+    active: true,
+    add() {
+      subscriptionGroups.push(arguments);
+    },
+  };
+
+  function flush() {
+    const dispatched = new WeakSet();
+    subscriptionGroups.forEach((args) => {
+      const noPayload = args.length < 2;
+      const [subscriptions, payload] = args;
+      subscriptions.forEach((subscription) => {
+        if (noPayload) {
+          if (dispatched.has(subscription)) {
+            return;
+          }
+          dispatched.add(subscription);
+        }
+        subscription(payload);
+      });
+    });
+  }
+
+  return batchScope(scope, () => {
+    let isAsync = false;
+    try {
+      const result = func(...args);
+      if (isPromiseLike(result)) {
+        isAsync = true;
+        return result.finally(flush);
+      }
+      return result;
+    } finally {
+      !isAsync && flush();
+    }
+  });
+}
 
 function createMapper(mapper) {
   if (!mapper) {

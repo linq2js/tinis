@@ -1,3 +1,5 @@
+import {isPlainObject} from './utils';
+
 export default class StateOp {
   swap(sourceIndex, destinationIndex) {
     return this._mutate(
@@ -17,7 +19,8 @@ export default class StateOp {
   }
   push(...values) {
     return this._mutate(
-      (array) => (array.length ? array.concat(values) : values),
+      (array) =>
+        values.length ? (array.length ? array.concat(values) : values) : array,
       {
         default: [],
       },
@@ -36,7 +39,8 @@ export default class StateOp {
 
   unshift(...values) {
     return this._mutate(
-      (array) => (array.length ? values.concat(array) : values),
+      (array) =>
+        values.length ? (array.length ? values.concat(array) : values) : array,
       {
         default: [],
       },
@@ -95,16 +99,15 @@ export default class StateOp {
   assign(...props) {
     return this._mutate(
       (prev) => {
+        const obj = props.length > 1 ? Object.assign({}, ...props) : props[0];
         let result = prev;
-        props.forEach((p) => {
-          Object.keys(p).forEach((key) => {
-            if (p[key] !== result[key]) {
-              if (result === prev) {
-                result = {...prev};
-              }
-              result[key] = p[key];
+        Object.keys(obj).forEach((key) => {
+          if (obj[key] !== result[key]) {
+            if (result === prev) {
+              result = {...prev};
             }
-          });
+            result[key] = obj[key];
+          }
         });
         return result;
       },
@@ -133,8 +136,50 @@ export default class StateOp {
     });
   }
 
+  toggle() {
+    return this._mutate((prev) => !prev);
+  }
+
+  add(by = 1) {
+    return this._mutate((prev) => {
+      if (!(prev instanceof Date)) {
+        return prev + by;
+      }
+
+      const date = prev;
+      let duration = by;
+      if (typeof duration !== 'object') {
+        duration = {
+          milliseconds: duration,
+        };
+      }
+      const {
+        years = 0,
+        months = 0,
+        days = 0,
+        hours = 0,
+        seconds = 0,
+        minutes = 0,
+        milliseconds = 0,
+      } = duration;
+
+      return new Date(
+        date.getFullYear() + years,
+        date.getMonth() + months,
+        date.getDate() + days,
+        date.getHours() + hours,
+        date.getMinutes() + minutes,
+        date.getSeconds() + seconds,
+        date.getMilliseconds() + milliseconds,
+      );
+    });
+  }
+
   constructor(mutate) {
-    this._mutate = (mutator, {clone, detectChange, default: defaultValue}) => {
+    this._mutate = (
+      mutator,
+      {clone, detectChange, default: defaultValue} = {},
+    ) => {
       return mutate((value) => {
         if (typeof value === 'undefined' || value === null) {
           value = defaultValue;
@@ -153,10 +198,25 @@ export default class StateOp {
             value = {...value};
             isObject = true;
           }
+        } else {
+          if (Array.isArray(originalValue)) {
+            isArray = true;
+          } else if (isPlainObject(originalValue)) {
+            isObject = true;
+          }
         }
 
         const mutatedValue = mutator(value, originalValue);
-        const nextValue = clone ? value : mutatedValue;
+        const nextValue =
+          mutatedValue === originalValue
+            ? originalValue
+            : clone
+            ? value
+            : mutatedValue;
+        if (nextValue === originalValue) {
+          return originalValue;
+        }
+
         let isEqual = false;
         if (detectChange) {
           if (isArray) {

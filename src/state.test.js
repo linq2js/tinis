@@ -243,3 +243,57 @@ test('state persistent', async () => {
   });
   expect(stateChangeCallback).toBeCalledTimes(2);
 });
+
+test('batch update', async () => {
+  const countState = state(0);
+  const callback1 = jest.fn();
+  const callback2 = jest.fn();
+
+  countState.onChange(callback1);
+  countState.onChange(callback1);
+  countState.onChange(callback2);
+
+  // sync update
+  const r1 = state.batch(
+    (a, b, c) => {
+      expect(a).toBe(2);
+      expect(b).toBe(3);
+      expect(c).toBe(4);
+
+      countState.value++;
+      countState.value++;
+      countState.value++;
+
+      expect(callback1).toBeCalledTimes(0);
+      expect(callback2).toBeCalledTimes(0);
+
+      return 1;
+    },
+    2,
+    3,
+    4,
+  );
+
+  expect(r1).toBe(1);
+  expect(callback1).toBeCalledTimes(1);
+  expect(callback2).toBeCalledTimes(1);
+
+  // async update
+  const r2 = state.batch(async () => {
+    await delayIn(2);
+    countState.value++;
+    await delayIn(2);
+    countState.value++;
+    await delayIn(2);
+    countState.value++;
+    await delayIn(2);
+    expect(callback1).toBeCalledTimes(1);
+    expect(callback2).toBeCalledTimes(1);
+
+    return 2;
+  });
+
+  await expect(r2).resolves.toBe(2);
+  expect(callback1).toBeCalledTimes(2);
+  expect(callback2).toBeCalledTimes(2);
+});
