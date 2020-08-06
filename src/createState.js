@@ -16,7 +16,7 @@ import {
   wrapFunction,
 } from './utils';
 import createLoadable from './createLoadable';
-import StateBase from './StateBase';
+import StateOp from './StateOp';
 
 const globalOnChange = createObservable();
 
@@ -33,6 +33,7 @@ export default function createState(
     readonly,
     internalMutating,
     dirtyGetter,
+    validate,
   } = {},
 ) {
   let currentValue = unset;
@@ -62,7 +63,7 @@ export default function createState(
   );
   // notify loading change can be async, so we make debounced wrapper for it to avoid multiple call at time
   const wrappedNotifyLoadingChange = createDebounce(notifyLoadingChange, 0);
-  const wrappedInstance = new StateBase({
+  const wrappedInstance = {
     type: objectTypes.state,
     displayName,
     onChange: onChange.subscribe,
@@ -76,11 +77,37 @@ export default function createState(
     },
     freeze,
     unfreeze,
-    mapTo,
-  });
+    map,
+    op: new StateOp(mutate),
+  };
 
   if (!dirtyGetter) {
     dirtyGetter = () => isDirty;
+  }
+
+  function updateValue(value, isError) {
+    if (isError) {
+      currentError = value;
+    } else {
+      if (validate) {
+        try {
+          // invalid value
+          if (
+            currentValue !== unset &&
+            validate(currentValue, wrappedInstance) === false
+          ) {
+            return;
+          }
+          currentValue = value;
+          currentError = undefined;
+        } catch (e) {
+          updateValue(e, true);
+        }
+      } else {
+        currentValue = value;
+        currentError = undefined;
+      }
+    }
   }
 
   function avoidToMutateReadonlyState() {
@@ -89,8 +116,8 @@ export default function createState(
     }
   }
 
-  function mapTo(mapper, options) {
-    return createMap(wrappedInstance, mapper, options);
+  function map(mapper, options) {
+    return createStateFrom(wrappedInstance, mapper, options);
   }
 
   function mutate(...values) {
@@ -120,16 +147,14 @@ export default function createState(
           if (isPromiseLike(initialResult)) {
             processAsyncValue(initialResult, false);
           } else {
-            currentValue = initialResult;
-            currentError = undefined;
+            updateValue(initialResult, false);
           }
         } catch (e) {
-          currentError = e;
+          updateValue(e, true);
         }
       });
     } else {
-      currentValue = initial;
-      currentError = undefined;
+      updateValue(initial, false);
     }
   }
 
@@ -170,12 +195,11 @@ export default function createState(
     if (currentValue !== value) {
       onChanging && onChanging();
       if (value instanceof ErrorWrapper) {
-        currentError = value.error;
+        updateValue(value.error, true);
       } else if (value instanceof Error) {
-        currentError = value;
+        updateValue(value, true);
       } else {
-        currentValue = value;
-        currentError = undefined;
+        updateValue(value, false);
       }
 
       if (markAsDirty) {
@@ -471,9 +495,10 @@ export default function createState(
 Object.assign(createState, {
   history: createHistory,
   family: createFamily,
+  from: createStateFrom,
   map: createMap,
-  extend(...props) {
-    Object.assign(StateBase.prototype, ...props);
+  op(...props) {
+    Object.assign(StateOp.prototype, ...props);
   },
   any: {
     type: objectTypes.state,
@@ -492,7 +517,7 @@ function createMapper(mapper) {
   return (value) => value[prop];
 }
 
-function createMap(states, mapper, options = {}) {
+function createStateFrom(states, mapper, options = {}) {
   let previous = options.default;
   // single state map
   if (isState(states)) {
@@ -523,10 +548,11 @@ function createMap(states, mapper, options = {}) {
       mapper = undefined;
     }
     mapper = createMapper(mapper);
+    const isArray = Array.isArray(states);
     const entries = Object.entries(states);
     return createState(
       () => {
-        const result = {};
+        const result = isArray ? [] : {};
         entries.forEach(([key, state]) => {
           result[key] = state.value;
         });
@@ -539,18 +565,62 @@ function createMap(states, mapper, options = {}) {
   }
 }
 
-function createFamily(initial, options = {}) {
+function createMap(initial = {}, {...options} = {}) {
+  const formState = createState(initial);
+  const family = createFamily(
+    function (fieldName) {
+      return formState.value[fieldName];
+    },
+    {
+      ...options,
+      onCreate(state, [fieldName]) {
+        state.onChange(() => {
+          formState.value = {...formState.value, [fieldName]: state.value};
+        });
+      },
+    },
+  );
+
+  Object.defineProperties(family, {
+    value: {
+      get() {
+        return formState.value;
+      },
+      set(value) {
+        formState.value = value;
+        family.reset();
+      },
+    },
+  });
+
+  Object.assign(family, {
+    mutate: formState.mutate,
+  });
+
+  return family;
+}
+
+function createFamily(initial, {onCreate, ...options} = {}) {
   const stateMap = createArrayKeyedMap();
+  const onChange = createObservable();
+  const onLoadingChange = createObservable();
   return Object.assign(
     function (...args) {
       return stateMap.getOrAdd(args, () => {
-        return createState(initial, {
+        const state = createState(initial, {
           ...options,
           args,
         });
+        state.onChange(onChange.dispatch);
+        state.onLoadingChange(onLoadingChange.dispatch);
+        onCreate && onCreate(state, args);
+        return state;
       });
     },
     {
+      onChange: onChange.subscribe,
+      onLoadingChange: onLoadingChange.subscribe,
+      onDone: onChange.subscribe,
       reset() {
         for (const state of stateMap.values()) {
           state.reset();
@@ -562,7 +632,7 @@ function createFamily(initial, options = {}) {
 }
 
 function createHistory(states, {max, debounce, ...options} = {}) {
-  const isSingleState = states instanceof StateBase;
+  const isSingleState = isState(states);
   const stateMap = isSingleState ? undefined : {...states};
   const debouncedHandleChange = createDebounce(handleChange, debounce);
   let isUpdating = false;

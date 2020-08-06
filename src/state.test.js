@@ -161,12 +161,12 @@ test('state map', async () => {
       default: 1,
     },
   );
-  const doubleCountState = countState.mapTo((x) => x * 2);
-  const allCountState = state.map({
+  const doubleCountState = countState.map((x) => x * 2);
+  const allCountState = state.from({
     double: doubleCountState,
     count: countState,
   });
-  const countHistory = countState.mapTo((value, seed = []) =>
+  const countHistory = countState.map((value, seed = []) =>
     seed.concat([value]),
   );
 
@@ -207,7 +207,7 @@ test('state persistent', async () => {
   const emailState = state(() => remoteProfileState.value.email);
   const passwordState = state(() => remoteProfileState.value.password);
 
-  const persistentState = state.map(
+  const persistentState = state.from(
     {
       email: emailState,
       password: passwordState,

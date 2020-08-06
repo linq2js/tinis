@@ -2,7 +2,7 @@
 
 A tiny state management that is inspired on RecoilJs
 
-Table of contents
+## Table of contents
 
 1. [Intro](#intro)
 1. [States](#states)
@@ -215,10 +215,10 @@ const localStorageAppDataState = state(() => {
   return JSON.parse(localStorage.getItem('appData'));
 });
 
-const userToken = localStorageAppDataState.mapTo((value) => value.token);
-const userProfile = localStorageAppDataState.mapTo((value) => value.profile);
+const userToken = localStorageAppDataState.map((value) => value.token);
+const userProfile = localStorageAppDataState.map((value) => value.profile);
 
-const appDataState = state.map({
+const appDataState = state.from({
   token: userToken,
   profile: userProfile,
 });

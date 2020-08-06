@@ -90,20 +90,41 @@ interface StateExports extends Function {
     options?: StateOptions<StateValueInfer<Value>>,
   ): StateFamily<State<StateValueInfer<Value>>>;
 
-  map<Map extends {[key: string]: State<any>}>(
-    stateMap: Map,
-    options?: StateOptions<{[key in keyof Map]: StateTypeInfer<Map[key]>}>,
-  ): State<{[key in keyof Map]: StateTypeInfer<Map[key]>}>;
-  map<Map extends {[key: string]: State<any>}, Value>(
-    stateMap: Map,
-    mapper: (value: Map) => Value,
+  map<Group>(initial?: Group, options?: StateOptions<any>): StateMap<Group>;
+
+  from<Source extends {[key: string]: State<any>}>(
+    stateMap: Source,
+    options?: StateOptions<
+      {[key in keyof Source]: StateTypeInfer<Source[key]>}
+    >,
+  ): State<{[key in keyof Source]: StateTypeInfer<Source[key]>}>;
+  from<Source extends {[key: string]: State<any>}, Value>(
+    stateMap: Source,
+    mapper: (value: Source) => Value,
     options?: StateOptions<Value>,
   ): State<Value>;
-  map<Source, Destination>(
-    state: State<Source>,
-    mapper: (value: Source) => Destination,
+  from<Value, Destination>(
+    state: State<Value>,
+    mapper: (value: Value) => Destination,
     options?: StateOptions<Destination>,
   ): State<Destination>;
+}
+
+interface StateMap<T extends {[key: string]: any}>
+  extends StateFamily<State<any>> {
+  value: T;
+  /**
+   * set state value
+   * @param value
+   */
+  mutate(value: T | Promise<T>): CancellablePromiseInfer<T>;
+
+  mutate(asyncValue: Promise<T>): CancellablePromiseInfer<T>;
+  /**
+   * reduce state value with specified reducer
+   * @param reducers
+   */
+  mutate(...reducers: ((value?: T) => T)[]): CancellablePromiseInfer<T>;
 }
 
 type StateTypeInfer<T> = T extends State<infer Type> ? Type : never;
@@ -139,16 +160,92 @@ export interface State<T> extends Awaitable {
   onReady(listener: Listener): RemoveListener;
   onLoadingChange(listener: Listener): RemoveListener;
 
-  /// Array mutations
+  op: StateOperators<T>;
+
+  map<Destination>(
+    mapper: (value: T) => Destination,
+    options?: StateOptions<Destination>,
+  ): State<Destination>;
+}
+
+interface StateOperators<T> {
+  /**
+   *
+   * @param sourceProp
+   * @param destProp
+   */
+  swap(
+    sourceProp: number | string,
+    destProp: number | string,
+  ): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param values
+   */
   push(...values: ArrayItemInfer<T>[]): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   */
+  pop(): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param values
+   */
+  unshift(...values: ArrayItemInfer<T>[]): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   */
+  shift(): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param predicate
+   */
   filter(
     predicate: (value?: ArrayItemInfer<T>, index?: number) => boolean,
   ): CancellablePromiseInfer<T>;
 
-  mapTo<Destination>(
-    mapper: (value: T) => Destination,
-    options?: StateOptions<Destination>,
-  ): State<Destination>;
+  /**
+   *
+   * @param mapper
+   */
+  map(
+    mapper: (value: ArrayItemInfer<T>, index?: number) => ArrayItemInfer<T>,
+  ): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param func
+   */
+  sort(func?: Function): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param index
+   * @param length
+   * @param items
+   */
+  splice(
+    index: number,
+    length: number,
+    ...items: ArrayItemInfer<T>[]
+  ): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param props
+   */
+  assign(...props: {[key in keyof T]: T[key]}[]): CancellablePromiseInfer<T>;
+
+  /**
+   *
+   * @param props
+   */
+  delete(...props: (number | string)[]): CancellablePromiseInfer<T>;
 }
 
 type ArrayItemInfer<T> = T extends Array<infer Item> ? Item : never;
@@ -206,6 +303,8 @@ interface StateFamily<State> extends Function {
   (...args: any[]): State;
   reset(): void;
   clear(): void;
+  onChange(listener: Listener): RemoveListener;
+  onLoadingChange(listener: Listener): RemoveListener;
 }
 
 interface HistoryState<T> extends State<HistoryData<T>> {
@@ -230,12 +329,4 @@ interface HistoryData<T> {
   forward: boolean;
   back: boolean;
   updatedOn: Date;
-}
-
-type PromiseToResolved<T> = T extends Promise<infer Resolved> ? Resolved : T;
-
-export interface Loadable<T> {
-  value: T;
-  error: any;
-  state: 'loading' | 'hasValue' | 'hasError';
 }
